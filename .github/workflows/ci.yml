@@ -1,0 +1,110 @@
+# CI for the Library API (Spring Boot).
+# On every push and pull request: build and run the unit tests, then start the API
+# in test mode and run the contract's conformance suite against it, once with
+# SQLite and once with PostgreSQL 17.
+
+# The name shown in the Actions tab.
+name: CI
+
+# What starts the workflow: any push and any pull request.
+on:
+  push:
+  pull_request:
+
+# The jobs to run. Each job gets a fresh Ubuntu machine.
+jobs:
+  unit-tests:
+    # The machine the job runs on.
+    runs-on: ubuntu-latest
+
+    # The steps run in order; the first failure stops the job.
+    steps:
+      # "uses" runs a published action. This one checks out this repository.
+      - uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        # "with" passes inputs to the action.
+        with:
+          distribution: temurin
+          java-version: "21"
+          # Keep downloaded Maven dependencies between runs.
+          cache: maven
+
+      - name: Build and run the unit tests
+        # "run" runs shell commands. chmod in case mvnw lost its execute bit on Windows.
+        run: |
+          chmod +x mvnw
+          ./mvnw -B verify
+
+  conformance:
+    # Only start when the unit tests have passed.
+    needs: unit-tests
+    runs-on: ubuntu-latest
+
+    # Run this job once for each value in the list.
+    strategy:
+      # Let the other database finish even if one fails.
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgresql]
+
+    # Containers that run next to the job. The SQLite run ignores this one.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: library
+          POSTGRES_PASSWORD: library
+          POSTGRES_DB: library
+        ports:
+          - 5432:5432
+        # Wait until PostgreSQL accepts connections before the steps start.
+        options: >-
+          --health-cmd "pg_isready -U library -d library"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+
+    # Environment variables for every step. TEST_MODE=1 turns on POST /test/reset and X-Today.
+    env:
+      PORT: "8000"
+      TEST_MODE: "1"
+      DATABASE_URL: ${{ matrix.database == 'postgresql' && 'postgresql://library:library@localhost:5432/library' || 'sqlite:///library.db' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check out the contract
+        uses: actions/checkout@v5
+        with:
+          repository: devfoundry-training/Library_API_Contract
+          path: contract
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up Python for the conformance suite
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build the jar
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -q package -DskipTests
+
+      - name: Start the API
+        run: |
+          nohup java -jar target/library-api.jar > app.log 2>&1 &
+          for _ in $(seq 1 90); do curl -fs http://localhost:8000/health && break; sleep 1; done
+
+      - name: Conformance suite (${{ matrix.database }})
+        run: python contract/conformance/run.py --base-url http://localhost:8000
+
+      - name: Server log
+        # Only when an earlier step failed.
+        if: failure()
+        run: cat app.log

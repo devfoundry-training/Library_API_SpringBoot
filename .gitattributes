@@ -1,0 +1,5 @@
+# Shell scripts must keep LF line endings to run on Linux and macOS; Windows scripts keep CRLF.
+* text=auto
+mvnw text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
