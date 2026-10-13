@@ -1,5 +1,7 @@
 # Library API: Spring Boot
 
+[![CI](https://github.com/devfoundry-training/Library_API_SpringBoot/actions/workflows/ci.yml/badge.svg)](https://github.com/devfoundry-training/Library_API_SpringBoot/actions/workflows/ci.yml)
+
 Part of the DevFoundry Library API series. This is the
 [Library API contract](https://github.com/devfoundry-training/Library_API_Contract) built with Spring Boot 3.5 on
 Java 21: Spring Web for the HTTP layer, Spring Data JPA and Hibernate for the data, Flyway for the migrations. It runs
